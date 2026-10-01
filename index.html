@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Anagram Wordsmith Unscrambler</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  .letter-tile {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 46px; height: 52px; border-radius: 8px; font-size: 22px; font-weight: 800;
+    cursor: pointer; user-select: none; transition: transform 0.1s, box-shadow 0.1s;
+    background: #4f46e5; color: white; box-shadow: 0 4px 0 #3730a3;
+    border: none; margin: 3px;
+  }
+  .letter-tile:active { transform: translateY(2px); box-shadow: 0 2px 0 #3730a3; }
+  .letter-tile.used { background: #374151; color: #6b7280; box-shadow: 0 4px 0 #1f2937; cursor: default; }
+  .letter-tile.revealed { background: #f59e0b; color: white; box-shadow: 0 4px 0 #b45309; }
+  .answer-slot {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 46px; height: 52px; border-radius: 8px; font-size: 22px; font-weight: 800;
+    background: #1e293b; color: white; border: 2px dashed #334155;
+    margin: 3px; cursor: pointer; transition: background 0.15s;
+    min-width: 46px;
+  }
+  .answer-slot.filled { background: #0f172a; border-color: #6366f1; color: #a5b4fc; }
+  .answer-slot.correct { background: #065f46; border-color: #10b981; color: #6ee7b7 !important; }
+  .answer-slot.wrong { background: #7f1d1d; border-color: #ef4444; color: #fca5a5 !important; }
+</style>
+</head>
+<body class="bg-slate-900 min-h-screen font-sans text-white">
+<div class="max-w-lg mx-auto px-4 py-8">
+  <h1 class="text-2xl font-bold text-center mb-1">Anagram Wordsmith</h1>
+  <p class="text-slate-400 text-center text-sm mb-6">Unscramble today's word. Fastest wins!</p>
+
+  <!-- Stats bar -->
+  <div class="flex gap-3 justify-center mb-6 flex-wrap">
+    <div class="bg-slate-800 rounded-xl px-4 py-2 text-center">
+      <div class="text-xs text-slate-400">Streak</div>
+      <div id="statStreak" class="font-bold text-orange-400">0 🔥</div>
+    </div>
+    <div class="bg-slate-800 rounded-xl px-4 py-2 text-center">
+      <div class="text-xs text-slate-400">Best Time</div>
+      <div id="statBest" class="font-bold text-yellow-400">—</div>
+    </div>
+    <div class="bg-slate-800 rounded-xl px-4 py-2 text-center">
+      <div class="text-xs text-slate-400">Solved</div>
+      <div id="statSolved" class="font-bold text-green-400">0</div>
+    </div>
+    <div class="bg-slate-800 rounded-xl px-4 py-2 text-center">
+      <div class="text-xs text-slate-400">Hints Used</div>
+      <div id="statHints" class="font-bold text-slate-300">0</div>
+    </div>
+  </div>
+
+  <!-- Timer -->
+  <div class="text-center mb-4">
+    <div id="timerDisplay" class="text-4xl font-mono font-black text-indigo-300">0.0s</div>
+    <div class="text-xs text-slate-500 mt-1" id="dateLabel"></div>
+  </div>
+
+  <!-- Feedback -->
+  <div id="feedback" class="text-center text-sm font-semibold min-h-6 mb-3"></div>
+
+  <!-- Answer row -->
+  <div class="flex justify-center flex-wrap mb-4" id="answerRow"></div>
+
+  <!-- Scrambled tiles -->
+  <div class="flex justify-center flex-wrap mb-6" id="tilesRow"></div>
+
+  <!-- Controls -->
+  <div class="flex gap-3 justify-center flex-wrap">
+    <button onclick="useHint()" id="btnHint" class="px-4 py-2 rounded-xl bg-yellow-600 hover:bg-yellow-700 text-sm font-bold" aria-label="Use hint to reveal one letter">Hint</button>
+    <button onclick="clearAnswer()" class="px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-sm font-bold" aria-label="Clear current answer">Clear</button>
+    <button onclick="checkAnswer()" id="btnCheck" class="px-6 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-sm font-bold" aria-label="Check answer">Check</button>
+    <button onclick="newPuzzle()" class="px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-sm font-bold" aria-label="New puzzle word">New Word</button>
+  </div>
+
+  <!-- Score info -->
+  <div class="mt-6 bg-slate-800 rounded-xl p-4 text-center hidden" id="scorePanel">
+    <div class="text-lg font-bold text-green-400" id="scoreMsg"></div>
+    <div class="text-sm text-slate-400 mt-1" id="scoreDetail"></div>
+  </div>
+
+  <!-- History -->
+  <div class="mt-6 bg-slate-800 rounded-xl p-4">
+    <div class="flex justify-between items-center mb-2">
+      <span class="text-sm font-semibold text-slate-300">Recent Solves</span>
+      <button onclick="clearHistory()" class="text-xs text-red-400 hover:text-red-300" aria-label="Clear solve history">Clear</button>
+    </div>
+    <div id="historyList" class="space-y-1 max-h-40 overflow-y-auto"></div>
+  </div>
+</div>
+
+<script>
+const LS_KEY = 'awu_data';
+const WORD_LIST = [
+  'PLANET', 'BRIDGE', 'CASTLE', 'FOREST', 'GARDEN', 'HORSE',
+  'ISLAND', 'JUNGLE', 'KNIGHT', 'LEMON', 'MIRROR', 'ORANGE',
+  'PUZZLE', 'RABBIT', 'SAILOR', 'TEMPLE', 'UNIQUE', 'VIOLET',
+  'WINDOW', 'YELLOW', 'ANCHOR', 'BUTTER', 'CANDLE', 'DESERT',
+  'ESCAPE', 'FELINE', 'GENTLE', 'HUNGER', 'INSECT', 'JUGGLE',
+  'KITTEN', 'LUMBER', 'MAGNET', 'NAPKIN', 'OYSTER', 'PARROT',
+  'QUARTZ', 'ROCKET', 'SILVER', 'TURNIP', 'UMBRELLA', 'VENDOR',
+  'WALNUT', 'XYSTER', 'YONDER', 'ZIPPER', 'BASKET', 'COBALT',
+  'DONKEY', 'ELBOW'
+];
+
+let data = { streak: 0, bestTimes: {}, solved: 0 };
+let currentWord = '';
+let scrambled = [];
+let answer = [];
+let usedTileIndices = [];
+let revealedIndices = []; // scrambled tile indices that are hints
+let timerStart = null;
+let timerInterval = null;
+let timerRunning = false;
+let hintsUsed = 0;
+let solved = false;
+
+function loadData() {
+  try {
+    const s = localStorage.getItem(LS_KEY);
+    if (s) data = { ...data, ...JSON.parse(s) };
+  } catch(e) {}
+}
+
+function saveData() {
+  localStorage.setItem(LS_KEY, JSON.stringify(data));
+}
+
+function clearHistory() {
+  data.history = [];
+  saveData();
+  renderHistory();
+}
+
+function getDailyWord() {
+  const now = new Date();
+  const dayIndex = Math.floor(now.getTime() / 86400000) % WORD_LIST.length;
+  return WORD_LIST[dayIndex];
+}
+
+function scrambleWord(word) {
+  const arr = word.split('');
+  // Fisher-Yates, seeded by word to be consistent
+  let seed = word.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+  function rand() { seed = (seed * 1664525 + 1013904223) & 0xffffffff; return Math.abs(seed) / 0x7fffffff; }
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  // Make sure it's not the same as the original
+  if (arr.join('') === word) { [arr[0], arr[arr.length - 1]] = [arr[arr.length - 1], arr[0]]; }
+  return arr;
+}
+
+function startPuzzle(word) {
+  currentWord = word;
+  scrambled = scrambleWord(word);
+  answer = new Array(word.length).fill(null);
+  usedTileIndices = [];
+  revealedIndices = [];
+  hintsUsed = 0;
+  solved = false;
+  timerRunning = false;
+  clearInterval(timerInterval);
+  timerStart = null;
+
+  document.getElementById('dateLabel').textContent = 'Daily Word — ' + new Date().toLocaleDateString();
+  document.getElementById('feedback').textContent = '';
+  document.getElementById('feedback').className = 'text-center text-sm font-semibold min-h-6 mb-3';
+  document.getElementById('scorePanel').classList.add('hidden');
+  document.getElementById('timerDisplay').textContent = '0.0s';
+
+  renderTiles();
+  renderAnswer();
+  updateHUD();
+}
+
+function renderTiles() {
+  const row = document.getElementById('tilesRow');
+  row.innerHTML = '';
+  scrambled.forEach((letter, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'letter-tile' + (usedTileIndices.includes(i) ? ' used' : '') + (revealedIndices.includes(i) ? ' revealed' : '');
+    btn.textContent = letter;
+    btn.setAttribute('aria-label', 'Letter tile ' + letter);
+    btn.dataset.idx = i;
+    if (!usedTileIndices.includes(i)) {
+      btn.onclick = () => placeLetter(i);
+    }
+    row.appendChild(btn);
+  });
+}
+
+function renderAnswer() {
+  const row = document.getElementById('answerRow');
+  row.innerHTML = '';
+  for (let i = 0; i < currentWord.length; i++) {
+    const slot = document.createElement('div');
+    slot.className = 'answer-slot' + (answer[i] !== null ? ' filled' : '');
+    slot.dataset.pos = i;
+    if (answer[i] !== null) {
+      slot.textContent = answer[i].letter;
+      slot.onclick = () => removeFromAnswer(i);
+      slot.setAttribute('aria-label', 'Answer position ' + (i+1) + ' letter ' + answer[i].letter);
+    } else {
+      slot.textContent = '';
+      slot.setAttribute('aria-label', 'Empty answer position ' + (i+1));
+    }
+    row.appendChild(slot);
+  }
+}
+
+function placeLetter(tileIdx) {
+  if (solved) return;
+  if (usedTileIndices.includes(tileIdx)) return;
+  // Find first empty slot
+  const emptySlot = answer.findIndex(s => s === null);
+  if (emptySlot === -1) return;
+
+  // Start timer on first placement
+  if (!timerRunning && !solved) {
+    timerRunning = true;
+    timerStart = Date.now();
+    timerInterval = setInterval(updateTimer, 100);
+  }
+
+  answer[emptySlot] = { letter: scrambled[tileIdx], tileIdx };
+  usedTileIndices.push(tileIdx);
+  renderTiles();
+  renderAnswer();
+
+  // Auto-check if all slots filled
+  if (answer.every(s => s !== null)) {
+    setTimeout(checkAnswer, 100);
+  }
+}
+
+function removeFromAnswer(pos) {
+  if (solved) return;
+  const slot = answer[pos];
+  if (!slot) return;
+  // Don't allow removing revealed hint letters
+  if (revealedIndices.includes(slot.tileIdx)) return;
+  usedTileIndices = usedTileIndices.filter(i => i !== slot.tileIdx);
+  answer[pos] = null;
+  renderTiles();
+  renderAnswer();
+}
+
+function clearAnswer() {
+  if (solved) return;
+  // Don't clear hint-revealed letters
+  for (let i = 0; i < answer.length; i++) {
+    if (answer[i] && !revealedIndices.includes(answer[i].tileIdx)) {
+      usedTileIndices = usedTileIndices.filter(idx => idx !== answer[i].tileIdx);
+      answer[i] = null;
+    }
+  }
+  renderTiles();
+  renderAnswer();
+}
+
+function updateTimer() {
+  const elapsed = (Date.now() - timerStart) / 1000;
+  document.getElementById('timerDisplay').textContent = elapsed.toFixed(1) + 's';
+}
+
+function checkAnswer() {
+  if (solved) return;
+  const attempt = answer.map(s => s ? s.letter : '').join('');
+  if (attempt.length < currentWord.length) {
+    const fb = document.getElementById('feedback');
+    fb.textContent = 'Fill all the letters first!';
+    fb.className = 'text-center text-sm font-semibold min-h-6 mb-3 text-yellow-400';
+    return;
+  }
+
+  if (attempt === currentWord) {
+    // Correct!
+    clearInterval(timerInterval);
+    timerRunning = false;
+    solved = true;
+    const elapsed = timerStart ? (Date.now() - timerStart) / 1000 : 0;
+    data.streak = (data.streak || 0) + 1;
+    data.solved = (data.solved || 0) + 1;
+
+    const wordKey = currentWord;
+    if (!data.bestTimes) data.bestTimes = {};
+    if (!data.bestTimes[wordKey] || elapsed < data.bestTimes[wordKey]) {
+      data.bestTimes[wordKey] = elapsed;
+    }
+
+    // Score: base 1000 - 10 per second - 100 per hint
+    const score = Math.max(100, Math.round(1000 - elapsed * 10 - hintsUsed * 100));
+    if (!data.history) data.history = [];
+    data.history.unshift({ word: currentWord, time: elapsed, hints: hintsUsed, score, date: new Date().toISOString() });
+    if (data.history.length > 20) data.history = data.history.slice(0, 20);
+    saveData();
+
+    // Mark correct
+    document.querySelectorAll('.answer-slot').forEach(s => {
+      s.classList.add('correct');
+      s.className = s.className.replace('filled', '').replace('wrong', '') + ' correct';
+    });
+
+    const fb = document.getElementById('feedback');
+    fb.textContent = '🎉 Correct! (' + elapsed.toFixed(1) + 's)';
+    fb.className = 'text-center text-sm font-semibold min-h-6 mb-3 text-green-400';
+
+    const panel = document.getElementById('scorePanel');
+    panel.classList.remove('hidden');
+    document.getElementById('scoreMsg').textContent = 'Score: ' + score + ' pts';
+    document.getElementById('scoreDetail').textContent = elapsed.toFixed(1) + 's · ' + hintsUsed + ' hint(s) used';
+
+    updateHUD();
+    renderHistory();
+  } else {
+    data.streak = 0;
+    saveData();
+    document.querySelectorAll('.answer-slot.filled').forEach(s => {
+      s.classList.add('wrong');
+    });
+    const fb = document.getElementById('feedback');
+    fb.textContent = '✗ Not quite. Try again!';
+    fb.className = 'text-center text-sm font-semibold min-h-6 mb-3 text-red-400';
+    setTimeout(() => {
+      if (!solved) {
+        document.querySelectorAll('.answer-slot').forEach(s => s.classList.remove('wrong'));
+        fb.textContent = '';
+        fb.className = 'text-center text-sm font-semibold min-h-6 mb-3';
+      }
+    }, 1000);
+    updateHUD();
+  }
+}
+
+function useHint() {
+  if (solved) return;
+  // Find first unplaced, non-revealed correct letter
+  for (let pos = 0; pos < currentWord.length; pos++) {
+    if (answer[pos] !== null) continue;
+    const targetLetter = currentWord[pos];
+    // Find a tile with this letter that's not used and not yet revealed as hint for another pos
+    const tileIdx = scrambled.findIndex((l, i) => l === targetLetter && !usedTileIndices.includes(i));
+    if (tileIdx === -1) continue;
+    hintsUsed++;
+    revealedIndices.push(tileIdx);
+    answer[pos] = { letter: targetLetter, tileIdx };
+    usedTileIndices.push(tileIdx);
+    renderTiles();
+    renderAnswer();
+    const fb = document.getElementById('feedback');
+    fb.textContent = 'Hint: revealed position ' + (pos + 1);
+    fb.className = 'text-center text-sm font-semibold min-h-6 mb-3 text-yellow-400';
+
+    if (!timerRunning && !solved) {
+      timerRunning = true;
+      timerStart = Date.now();
+      timerInterval = setInterval(updateTimer, 100);
+    }
+    if (answer.every(s => s !== null)) setTimeout(checkAnswer, 100);
+    return;
+  }
+  const fb = document.getElementById('feedback');
+  fb.textContent = 'No more hints available.';
+  fb.className = 'text-center text-sm font-semibold min-h-6 mb-3 text-slate-400';
+}
+
+function newPuzzle() {
+  clearInterval(timerInterval);
+  // Pick random word different from current
+  let word;
+  do { word = WORD_LIST[Math.floor(Math.random() * WORD_LIST.length)]; } while (word === currentWord);
+  startPuzzle(word);
+}
+
+function updateHUD() {
+  document.getElementById('statStreak').textContent = (data.streak || 0) + ' 🔥';
+  const allBest = data.bestTimes ? Object.values(data.bestTimes) : [];
+  const best = allBest.length ? Math.min(...allBest).toFixed(1) + 's' : '—';
+  document.getElementById('statBest').textContent = best;
+  document.getElementById('statSolved').textContent = data.solved || 0;
+  document.getElementById('statHints').textContent = hintsUsed;
+}
+
+function renderHistory() {
+  const list = document.getElementById('historyList');
+  list.innerHTML = '';
+  const history = data.history || [];
+  if (history.length === 0) {
+    const p = document.createElement('p');
+    p.className = 'text-slate-500 text-xs italic';
+    p.textContent = 'No solves yet.';
+    list.appendChild(p);
+    return;
+  }
+  history.forEach(entry => {
+    const d = new Date(entry.date);
+    const dateStr = d.toLocaleDateString();
+
+    const row = document.createElement('div');
+    row.className = 'flex items-center justify-between text-xs text-slate-400 py-0.5 border-b border-slate-700';
+
+    const left = document.createElement('span');
+    left.textContent = dateStr + ' — ' + entry.word;
+
+    const right = document.createElement('span');
+    right.className = 'text-indigo-300 font-mono';
+    right.textContent = entry.time.toFixed(1) + 's · ' + entry.score + 'pts';
+
+    row.appendChild(left);
+    row.appendChild(right);
+    list.appendChild(row);
+  });
+}
+
+loadData();
+startPuzzle(getDailyWord());
+renderHistory();
+</script>
+</body>
+</html>
